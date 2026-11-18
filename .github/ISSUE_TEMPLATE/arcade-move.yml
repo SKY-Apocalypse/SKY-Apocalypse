@@ -1,0 +1,15 @@
+name: Arcade move
+description: Submit a move from the SKY-Apocalypse profile.
+title: "Arcade move"
+labels: ["arcade"]
+body:
+  - type: markdown
+    attributes:
+      value: "The numbered README links prefill the move. Keep the value unchanged."
+  - type: textarea
+    id: move
+    attributes:
+      label: Move
+      placeholder: "MOVE: 0"
+    validations:
+      required: true

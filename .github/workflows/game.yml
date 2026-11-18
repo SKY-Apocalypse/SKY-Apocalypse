@@ -1,0 +1,104 @@
+name: Community Tic-Tac-Toe
+
+on:
+  issues:
+    types: [opened]
+
+permissions:
+  contents: write
+  issues: write
+
+concurrency:
+  group: community-tic-tac-toe
+  cancel-in-progress: false
+
+jobs:
+  move:
+    if: contains(github.event.issue.body, 'MOVE:') || github.event.issue.body == 'RESET GAME'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Validate move and update shared board
+        env:
+          ISSUE_BODY: ${{ github.event.issue.body }}
+          ISSUE_AUTHOR: ${{ github.event.issue.user.login }}
+          REPO_OWNER: ${{ github.repository_owner }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPOSITORY: ${{ github.repository }}
+        run: |
+          python - <<'PY'
+          import json, os, re, subprocess
+          from pathlib import Path
+
+          state_file = Path("game/state.json")
+          board_file = Path("game/board.svg")
+          state_file.parent.mkdir(exist_ok=True)
+          def fresh():
+              return {"board":[""]*9,"next":"X","status":"playing","winner":None,"moves":0}
+          try:
+              state = json.loads(state_file.read_text())
+          except Exception:
+              state = fresh()
+
+          body = (os.environ.get("ISSUE_BODY") or "").strip()
+          author = os.environ["ISSUE_AUTHOR"]
+          owner = os.environ["REPO_OWNER"]
+          issue = os.environ["ISSUE_NUMBER"]
+          repo = os.environ["GH_REPOSITORY"]
+
+          if body == "RESET GAME":
+              if author.lower() != owner.lower():
+                  result = "Only the repository owner can reset the board."
+              else:
+                  state = fresh()
+                  result = "♻️ Board reset. The next move is **X**."
+          else:
+              match = re.search(r"^MOVE:\s*([0-8])\s*$", body, re.M)
+              if not match:
+                  result = "Invalid move. Use one of the numbered squares in the profile README."
+              elif state["status"] != "playing":
+                  result = "The game has ended. The repository owner can open an issue with exact body `RESET GAME`."
+              else:
+                  pos = int(match.group(1))
+                  if state["board"][pos]:
+                      result = f"Square {pos+1} is occupied. Choose an empty square."
+                  else:
+                      player = state["next"]
+                      state["board"][pos] = player
+                      state["moves"] += 1
+                      wins = [(0,1,2),(3,4,5),(6,7,8),(0,3,6),(1,4,7),(2,5,8),(0,4,8),(2,4,6)]
+                      if any(all(state["board"][i] == player for i in line) for line in wins):
+                          state["status"], state["winner"] = "won", player
+                          result = f"🎉 **{player} wins!** Thanks @{author} for playing."
+                      elif all(state["board"]):
+                          state["status"] = "draw"
+                          result = "🤝 Draw! The repository owner can reset the board."
+                      else:
+                          state["next"] = "O" if player == "X" else "X"
+                          result = f"✅ @{author} played **{player}** in square **{pos+1}**. Next turn: **{state['next']}**."
+
+          state_file.write_text(json.dumps(state, indent=2) + "\n")
+          colors = {"X":"#22D3EE","O":"#E879F9"}
+          shapes = []
+          for i, mark in enumerate(state["board"]):
+              x, y = 20+(i%3)*120, 20+(i//3)*120
+              shapes.append(f'<rect x="{x}" y="{y}" width="108" height="108" rx="14" fill="#151526" stroke="#45456b" stroke-width="2"/>')
+              if mark:
+                  shapes.append(f'<text x="{x+54}" y="{y+73}" text-anchor="middle" font-family="Arial" font-size="64" font-weight="bold" fill="{colors[mark]}">{mark}</text>')
+              else:
+                  shapes.append(f'<text x="{x+54}" y="{y+68}" text-anchor="middle" font-family="Arial" font-size="28" fill="#777799">{i+1}</text>')
+          status = ("Next: "+state["next"]) if state["status"]=="playing" else ("Winner: "+str(state["winner"]) if state["winner"] else "Draw")
+          svg = f'<svg xmlns="http://www.w3.org/2000/svg" width="384" height="420" viewBox="0 0 384 420"><rect width="384" height="420" rx="20" fill="#0b0b18"/>{"".join(shapes)}<text x="192" y="405" text-anchor="middle" font-family="Arial" font-size="16" fill="#c4b5fd">{status}</text></svg>'
+          board_file.write_text(svg)
+
+          subprocess.run(["git","config","user.name","github-actions[bot]"],check=True)
+          subprocess.run(["git","config","user.email","41898282+github-actions[bot]@users.noreply.github.com"],check=True)
+          subprocess.run(["git","add","game/state.json","game/board.svg"],check=True)
+          subprocess.run(["git","commit","-m",f"Update community game for issue #{issue}"],check=False)
+          subprocess.run(["git","push"],check=True)
+          subprocess.run(["gh","issue","comment",issue,"--repo",repo,"--body",result+"\n\nUpdated board: https://github.com/"+repo+"/blob/HEAD/game/board.svg"],check=True)
+          PY
