@@ -8,10 +8,10 @@
     "",
     "X",
     "",
-    ""
+    "X"
   ],
-  "next": "X",
+  "next": "O",
   "status": "playing",
   "winner": null,
-  "moves": 2
+  "moves": 3
 }
